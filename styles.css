@@ -239,6 +239,11 @@ body {
     margin-bottom: 1.5rem;
     padding-bottom: 1rem;
     border-bottom: 1px solid var(--gray-200);
+    flex-wrap: wrap;
+}
+
+.week-info .btn-small {
+    margin-left: auto;
 }
 
 .week-label {

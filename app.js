@@ -1,12 +1,13 @@
 // Daily Standup Picker - ALF Team
 // Reads Excel capacity file, filters ALF team, picks random person
+// Caches file in IndexedDB so it auto-loads next time
 
 (function () {
     'use strict';
 
     // --- STATE ---
-    let teamData = []; // [{name, surname, fullName, skillset, team, weeks: {weekLabel: percentage}}]
-    let weekColumns = []; // [{label, colIndex}]
+    let teamData = [];
+    let weekColumns = [];
     let currentWeek = null;
 
     // Excluded from picking (leader + devs on other projects)
@@ -15,6 +16,10 @@
         'Adrian Słabicki',
         'Szymon Bartnik'
     ];
+
+    const DB_NAME = 'DailyPickerDB';
+    const DB_STORE = 'files';
+    const DB_KEY = 'capacity-file';
 
     // --- DOM REFS ---
     const uploadSection = document.getElementById('uploadSection');
@@ -31,34 +36,92 @@
     const historySection = document.getElementById('historySection');
     const historyList = document.getElementById('historyList');
     const clearHistoryBtn = document.getElementById('clearHistoryBtn');
+    const updateFileBtn = document.getElementById('updateFileBtn');
+
+    // --- INDEXED DB (file cache) ---
+    function openDB() {
+        return new Promise((resolve, reject) => {
+            const request = indexedDB.open(DB_NAME, 1);
+            request.onupgradeneeded = (e) => {
+                const db = e.target.result;
+                if (!db.objectStoreNames.contains(DB_STORE)) {
+                    db.createObjectStore(DB_STORE);
+                }
+            };
+            request.onsuccess = (e) => resolve(e.target.result);
+            request.onerror = (e) => reject(e.target.error);
+        });
+    }
+
+    async function saveFileToDB(arrayBuffer, fileName) {
+        const db = await openDB();
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction(DB_STORE, 'readwrite');
+            const store = tx.objectStore(DB_STORE);
+            store.put({
+                data: arrayBuffer,
+                name: fileName,
+                savedAt: new Date().toISOString()
+            }, DB_KEY);
+            tx.oncomplete = () => resolve();
+            tx.onerror = (e) => reject(e.target.error);
+        });
+    }
+
+    async function loadFileFromDB() {
+        const db = await openDB();
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction(DB_STORE, 'readonly');
+            const store = tx.objectStore(DB_STORE);
+            const request = store.get(DB_KEY);
+            request.onsuccess = (e) => resolve(e.target.result || null);
+            request.onerror = (e) => reject(e.target.error);
+        });
+    }
+
+    async function deleteFileFromDB() {
+        const db = await openDB();
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction(DB_STORE, 'readwrite');
+            const store = tx.objectStore(DB_STORE);
+            store.delete(DB_KEY);
+            tx.oncomplete = () => resolve();
+            tx.onerror = (e) => reject(e.target.error);
+        });
+    }
 
     // --- EXCEL PARSING ---
+    function parseExcelBuffer(arrayBuffer) {
+        try {
+            const data = new Uint8Array(arrayBuffer);
+            const workbook = XLSX.read(data, { type: 'array' });
+
+            const sheetName = workbook.SheetNames.find(
+                n => n.toLowerCase().includes('capacity')
+            ) || workbook.SheetNames[0];
+
+            const sheet = workbook.Sheets[sheetName];
+            const json = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+
+            processSheetData(json);
+        } catch (err) {
+            alert('Błąd parsowania pliku: ' + err.message);
+            console.error(err);
+        }
+    }
+
     function parseExcelFile(file) {
         const reader = new FileReader();
-        reader.onload = function (e) {
-            try {
-                const data = new Uint8Array(e.target.result);
-                const workbook = XLSX.read(data, { type: 'array' });
-
-                // Find "capacity" sheet (case insensitive)
-                const sheetName = workbook.SheetNames.find(
-                    n => n.toLowerCase().includes('capacity')
-                ) || workbook.SheetNames[0];
-
-                const sheet = workbook.Sheets[sheetName];
-                const json = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
-
-                processSheetData(json);
-            } catch (err) {
-                alert('Błąd parsowania pliku: ' + err.message);
-                console.error(err);
-            }
+        reader.onload = async function (e) {
+            const arrayBuffer = e.target.result;
+            // Save to IndexedDB (replaces previous)
+            await saveFileToDB(arrayBuffer, file.name);
+            parseExcelBuffer(arrayBuffer);
         };
         reader.readAsArrayBuffer(file);
     }
 
     function processSheetData(rows) {
-        // Find header row with NAME, SURNAME, TEAM columns
         let headerRowIndex = -1;
         let nameCol = -1, surnameCol = -1, fullNameCol = -1, skillsetCol = -1, teamCol = -1;
 
@@ -84,11 +147,9 @@
             return;
         }
 
-        // Find week columns (after TEAM/DATE columns - look for date-like headers)
         const headerRow = rows[headerRowIndex];
         weekColumns = [];
 
-        // Find the "DATE" or "WEEK" column to know where week data starts
         const dateColIndex = headerRow.findIndex(
             c => String(c).trim().toUpperCase() === 'DATE'
         );
@@ -98,7 +159,6 @@
             const val = headerRow[c];
             if (val !== '' && val !== undefined && val !== null) {
                 let label = '';
-                // Handle Excel serial date numbers
                 if (typeof val === 'number' && val > 40000) {
                     const date = excelDateToJS(val);
                     label = formatDateLabel(date);
@@ -111,7 +171,6 @@
             }
         }
 
-        // Parse team members (filter ALF team)
         teamData = [];
         for (let i = headerRowIndex + 1; i < rows.length; i++) {
             const row = rows[i];
@@ -129,7 +188,6 @@
                 ? String(row[skillsetCol] || '').trim()
                 : '';
 
-            // Parse week availability
             const weeks = {};
             weekColumns.forEach(wc => {
                 const cellValue = row[wc.colIndex];
@@ -144,28 +202,23 @@
             return;
         }
 
-        // Show picker UI
         showPickerSection();
     }
 
     function parseAvailability(cellValue) {
         if (cellValue === null || cellValue === undefined || cellValue === '') return 0;
         const str = String(cellValue).trim();
-        // Handle percentage strings like "100%", "85%", "0%"
         if (str.endsWith('%')) {
             return parseFloat(str) / 100;
         }
-        // Handle decimal values like 1, 0.85, 0
         const num = parseFloat(str);
         if (!isNaN(num)) {
-            // If value > 1, treat as percentage (e.g., 100 = 100%)
             return num > 1 ? num / 100 : num;
         }
         return 0;
     }
 
     function excelDateToJS(serial) {
-        // Excel serial date to JS Date
         const utcDays = Math.floor(serial - 25569);
         return new Date(utcDays * 86400 * 1000);
     }
@@ -180,9 +233,7 @@
     // --- WEEK DETECTION ---
     function findCurrentWeek() {
         const today = new Date();
-        // Try to match current date to a week column
-        // Week columns represent start of week, find the one closest to today (but not after)
-        let bestMatch = weekColumns.length - 1; // default to last
+        let bestMatch = weekColumns.length - 1;
 
         for (let i = 0; i < weekColumns.length; i++) {
             const label = weekColumns[i].label;
@@ -222,7 +273,6 @@
         pickerSection.classList.remove('hidden');
         historySection.classList.remove('hidden');
 
-        // Populate week selector
         weekSelect.innerHTML = '';
         weekColumns.forEach((wc, idx) => {
             const opt = document.createElement('option');
@@ -231,7 +281,6 @@
             weekSelect.appendChild(opt);
         });
 
-        // Auto-select current week
         const currentIdx = findCurrentWeek();
         weekSelect.value = currentIdx;
         currentWeek = weekColumns[currentIdx]?.label;
@@ -261,7 +310,6 @@
             membersList.appendChild(chip);
         });
 
-        // Check if all available have been used
         const unusedAvailable = available.filter(m => !usedNames.includes(m.fullName));
         if (unusedAvailable.length === 0) {
             pickBtn.disabled = true;
@@ -294,7 +342,6 @@
     function pickRandom() {
         const eligible = getEligibleMembers();
         if (eligible.length === 0) return null;
-
         const randomIndex = Math.floor(Math.random() * eligible.length);
         return eligible[randomIndex];
     }
@@ -325,7 +372,6 @@
             alert('Wszyscy dostępni członkowie zespołu już prowadzili daily w tym tygodniu!');
             return;
         }
-
         animatePick(() => {
             resultName.textContent = picked.fullName;
             addToHistory(picked.fullName);
@@ -336,7 +382,6 @@
 
     // --- HISTORY (localStorage) ---
     function getStorageKey() {
-        // Key based on current week label for weekly reset
         return `daily-picker-history-${currentWeek || 'unknown'}`;
     }
 
@@ -377,7 +422,6 @@
             historyList.innerHTML = '<p class="empty-state">Brak historii — nikt jeszcze nie losował w tym tygodniu</p>';
             return;
         }
-
         historyList.innerHTML = history.map((h, idx) => `
             <div class="history-item">
                 <span class="name">${idx + 1}. ${h.name}</span>
@@ -388,7 +432,11 @@
 
     // --- EVENT HANDLERS ---
     uploadBtn.addEventListener('click', () => fileInput.click());
-    uploadArea.addEventListener('click', () => fileInput.click());
+    uploadArea.addEventListener('click', (e) => {
+        if (e.target === uploadArea || e.target.closest('.upload-area')) {
+            fileInput.click();
+        }
+    });
 
     fileInput.addEventListener('change', (e) => {
         const file = e.target.files[0];
@@ -420,8 +468,8 @@
     });
 
     pickBtn.addEventListener('click', doPick);
+
     rerollBtn.addEventListener('click', () => {
-        // Remove last entry from history and re-pick
         const key = getStorageKey();
         const history = getWeekHistory();
         if (history.length > 0) {
@@ -437,5 +485,27 @@
             clearWeekHistory();
         }
     });
+
+    // "Update file" button — shown when picker is active, allows re-upload
+    if (updateFileBtn) {
+        updateFileBtn.addEventListener('click', () => {
+            fileInput.click();
+        });
+    }
+
+    // --- AUTO-LOAD FROM CACHE ON STARTUP ---
+    async function init() {
+        try {
+            const cached = await loadFileFromDB();
+            if (cached && cached.data) {
+                console.log('Loaded cached file:', cached.name, 'saved at:', cached.savedAt);
+                parseExcelBuffer(cached.data);
+            }
+        } catch (err) {
+            console.warn('Could not load cached file:', err);
+        }
+    }
+
+    init();
 
 })();
