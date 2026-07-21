@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Daily Standup Picker — ALF Team</title>
+    <title>ALFinator — Daily Picker</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎯</text></svg>">
     <script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -13,56 +14,38 @@
     <div class="container">
         <header class="header">
             <div class="logo">
-                <span class="logo-icon">🎯</span>
-                <h1>Daily Standup Picker</h1>
-                <span class="badge">ALF Team</span>
+                <img src="alf.png" alt="ALF" class="logo-img">
+                <div class="logo-text">
+                    <h1>ALFinator</h1>
+                    <p class="subtitle">Kto dziś prowadzi daily?</p>
+                </div>
             </div>
-            <p class="subtitle">Losowanie osoby prowadzącej daily na podstawie dostępności</p>
         </header>
 
-        <section class="upload-section" id="uploadSection">
-            <div class="sharepoint-info">
-                <div class="step-card">
-                    <div class="step-number">1</div>
-                    <div class="step-content">
-                        <p>Pobierz aktualny plik Capacity z SharePoint:</p>
-                        <a href="https://digitalcarepl.sharepoint.com/:x:/s/RND/IQCIGRMMoA8VQrf-JLfqtMzpAUFLNubkKagObaL7WUXllHs?download=1"
-                           class="btn btn-primary" id="downloadSharepointBtn" target="_blank">
-                            📥 Pobierz z SharePoint
-                        </a>
-                    </div>
-                </div>
-                <div class="step-card">
-                    <div class="step-number">2</div>
-                    <div class="step-content">
-                        <p>Upuść pobrany plik tutaj:</p>
-                    </div>
-                </div>
-            </div>
-            <div class="upload-area" id="uploadArea">
-                <div class="upload-icon">📊</div>
-                <h3>Upuść plik Excel tutaj</h3>
-                <p>Przeciągnij pobrany plik lub kliknij, aby wybrać z dysku</p>
-                <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" hidden>
-                <button class="btn btn-secondary" id="uploadBtn">Wybierz z dysku</button>
-            </div>
+        <section class="loading-section" id="loadingSection">
+            <div class="spinner"></div>
+            <p>Ładowanie danych...</p>
+        </section>
+
+        <section class="error-section hidden" id="errorSection">
+            <p>⚠️ Nie udało się załadować pliku. Sprawdź połączenie.</p>
+            <button class="btn btn-primary" id="retryBtn">🔄 Spróbuj ponownie</button>
         </section>
 
         <section class="picker-section hidden" id="pickerSection">
             <div class="week-info">
-                <span class="week-label">Tydzień:</span>
+                <span class="week-label">📅 Tydzień:</span>
                 <select id="weekSelect" class="week-select"></select>
-                <button class="btn btn-secondary btn-small" id="updateFileBtn" title="Wgraj nową wersję pliku Capacity">📥 Aktualizuj plik</button>
             </div>
 
             <div class="available-list" id="availableList">
-                <h3>Dostępni członkowie zespołu</h3>
+                <h3>Zespół <span class="hint">(odznacz nieobecnych)</span></h3>
                 <div class="members" id="membersList"></div>
             </div>
 
             <div class="picker-action">
                 <button class="btn btn-pick" id="pickBtn">
-                    <span class="btn-icon">🎲</span> Losuj osobę!
+                    <span class="btn-icon">🎲</span> Losuj!
                 </button>
             </div>
 
@@ -80,8 +63,12 @@
             <div class="history-list" id="historyList">
                 <p class="empty-state">Brak historii</p>
             </div>
-            <button class="btn btn-danger btn-small" id="clearHistoryBtn">Wyczyść historię tygodnia</button>
+            <button class="btn btn-danger btn-small" id="clearHistoryBtn">Wyczyść historię</button>
         </section>
+
+        <footer class="footer">
+            <p>Excel aktualizowany przez admina · Dane ładowane automatycznie z repo</p>
+        </footer>
     </div>
 
     <script src="app.js"></script>

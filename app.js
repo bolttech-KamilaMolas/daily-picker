@@ -1,31 +1,28 @@
-// Daily Standup Picker - ALF Team
-// Reads Excel capacity file, filters ALF team, picks random person
-// Caches file in IndexedDB so it auto-loads next time
+// ALFinator — Daily Standup Picker for ALF Team
+// Auto-fetches Excel from GitHub repo, users can toggle members off
 
 (function () {
     'use strict';
 
-    // --- STATE ---
-    let teamData = [];
-    let weekColumns = [];
-    let currentWeek = null;
+    // --- CONFIG ---
+    const EXCEL_URL = 'https://bolttech-kamilamolas.github.io/daily-picker/data/capacity.xlsx';
 
-    // Excluded from picking (leader + devs on other projects)
     const EXCLUDED_MEMBERS = [
         'Kamila Molas',
         'Adrian Słabicki',
         'Szymon Bartnik'
     ];
 
-    const DB_NAME = 'DailyPickerDB';
-    const DB_STORE = 'files';
-    const DB_KEY = 'capacity-file';
+    // --- STATE ---
+    let teamData = [];
+    let weekColumns = [];
+    let currentWeek = null;
+    let disabledMembers = new Set(); // manually toggled off by user (per session)
 
     // --- DOM REFS ---
-    const uploadSection = document.getElementById('uploadSection');
-    const uploadArea = document.getElementById('uploadArea');
-    const fileInput = document.getElementById('fileInput');
-    const uploadBtn = document.getElementById('uploadBtn');
+    const loadingSection = document.getElementById('loadingSection');
+    const errorSection = document.getElementById('errorSection');
+    const retryBtn = document.getElementById('retryBtn');
     const pickerSection = document.getElementById('pickerSection');
     const weekSelect = document.getElementById('weekSelect');
     const membersList = document.getElementById('membersList');
@@ -36,58 +33,19 @@
     const historySection = document.getElementById('historySection');
     const historyList = document.getElementById('historyList');
     const clearHistoryBtn = document.getElementById('clearHistoryBtn');
-    const updateFileBtn = document.getElementById('updateFileBtn');
 
-    // --- INDEXED DB (file cache) ---
-    function openDB() {
-        return new Promise((resolve, reject) => {
-            const request = indexedDB.open(DB_NAME, 1);
-            request.onupgradeneeded = (e) => {
-                const db = e.target.result;
-                if (!db.objectStoreNames.contains(DB_STORE)) {
-                    db.createObjectStore(DB_STORE);
-                }
-            };
-            request.onsuccess = (e) => resolve(e.target.result);
-            request.onerror = (e) => reject(e.target.error);
-        });
-    }
-
-    async function saveFileToDB(arrayBuffer, fileName) {
-        const db = await openDB();
-        return new Promise((resolve, reject) => {
-            const tx = db.transaction(DB_STORE, 'readwrite');
-            const store = tx.objectStore(DB_STORE);
-            store.put({
-                data: arrayBuffer,
-                name: fileName,
-                savedAt: new Date().toISOString()
-            }, DB_KEY);
-            tx.oncomplete = () => resolve();
-            tx.onerror = (e) => reject(e.target.error);
-        });
-    }
-
-    async function loadFileFromDB() {
-        const db = await openDB();
-        return new Promise((resolve, reject) => {
-            const tx = db.transaction(DB_STORE, 'readonly');
-            const store = tx.objectStore(DB_STORE);
-            const request = store.get(DB_KEY);
-            request.onsuccess = (e) => resolve(e.target.result || null);
-            request.onerror = (e) => reject(e.target.error);
-        });
-    }
-
-    async function deleteFileFromDB() {
-        const db = await openDB();
-        return new Promise((resolve, reject) => {
-            const tx = db.transaction(DB_STORE, 'readwrite');
-            const store = tx.objectStore(DB_STORE);
-            store.delete(DB_KEY);
-            tx.oncomplete = () => resolve();
-            tx.onerror = (e) => reject(e.target.error);
-        });
+    // --- FETCH EXCEL FROM REPO ---
+    async function fetchExcelFromRepo() {
+        try {
+            const response = await fetch(EXCEL_URL + '?t=' + Date.now()); // cache bust
+            if (!response.ok) throw new Error('HTTP ' + response.status);
+            const arrayBuffer = await response.arrayBuffer();
+            parseExcelBuffer(arrayBuffer);
+        } catch (err) {
+            console.error('Failed to fetch Excel:', err);
+            loadingSection.classList.add('hidden');
+            errorSection.classList.remove('hidden');
+        }
     }
 
     // --- EXCEL PARSING ---
@@ -107,18 +65,9 @@
         } catch (err) {
             alert('Błąd parsowania pliku: ' + err.message);
             console.error(err);
+            loadingSection.classList.add('hidden');
+            errorSection.classList.remove('hidden');
         }
-    }
-
-    function parseExcelFile(file) {
-        const reader = new FileReader();
-        reader.onload = async function (e) {
-            const arrayBuffer = e.target.result;
-            // Save to IndexedDB (replaces previous)
-            await saveFileToDB(arrayBuffer, file.name);
-            parseExcelBuffer(arrayBuffer);
-        };
-        reader.readAsArrayBuffer(file);
     }
 
     function processSheetData(rows) {
@@ -143,7 +92,8 @@
         }
 
         if (headerRowIndex === -1) {
-            alert('Nie znaleziono nagłówków (NAME, SURNAME, TEAM) w pliku.');
+            loadingSection.classList.add('hidden');
+            errorSection.classList.remove('hidden');
             return;
         }
 
@@ -165,9 +115,7 @@
                 } else {
                     label = String(val).trim();
                 }
-                if (label) {
-                    weekColumns.push({ label, colIndex: c });
-                }
+                if (label) weekColumns.push({ label, colIndex: c });
             }
         }
 
@@ -184,9 +132,11 @@
             const fullName = fullNameCol !== -1
                 ? String(row[fullNameCol] || '').trim() || `${name} ${surname}`
                 : `${name} ${surname}`;
-            const skillset = skillsetCol !== -1
-                ? String(row[skillsetCol] || '').trim()
-                : '';
+
+            const isExcluded = EXCLUDED_MEMBERS.some(
+                ex => fullName.toLowerCase() === ex.toLowerCase()
+            );
+            if (isExcluded) continue;
 
             const weeks = {};
             weekColumns.forEach(wc => {
@@ -194,11 +144,12 @@
                 weeks[wc.label] = parseAvailability(cellValue);
             });
 
-            teamData.push({ name, surname, fullName, skillset, team, weeks });
+            teamData.push({ name, surname, fullName, team, weeks });
         }
 
         if (teamData.length === 0) {
-            alert('Nie znaleziono członków zespołu ALF w pliku.');
+            loadingSection.classList.add('hidden');
+            errorSection.classList.remove('hidden');
             return;
         }
 
@@ -208,13 +159,9 @@
     function parseAvailability(cellValue) {
         if (cellValue === null || cellValue === undefined || cellValue === '') return 0;
         const str = String(cellValue).trim();
-        if (str.endsWith('%')) {
-            return parseFloat(str) / 100;
-        }
+        if (str.endsWith('%')) return parseFloat(str) / 100;
         const num = parseFloat(str);
-        if (!isNaN(num)) {
-            return num > 1 ? num / 100 : num;
-        }
+        if (!isNaN(num)) return num > 1 ? num / 100 : num;
         return 0;
     }
 
@@ -236,14 +183,12 @@
         let bestMatch = weekColumns.length - 1;
 
         for (let i = 0; i < weekColumns.length; i++) {
-            const label = weekColumns[i].label;
-            const weekDate = parseDateLabel(label);
+            const weekDate = parseDateLabel(weekColumns[i].label);
             if (weekDate) {
                 const nextWeekDate = i + 1 < weekColumns.length
                     ? parseDateLabel(weekColumns[i + 1].label)
                     : new Date(9999, 0, 1);
-
-                if (today >= weekDate && today < (nextWeekDate || new Date(9999, 0, 1))) {
+                if (today >= weekDate && today < nextWeekDate) {
                     bestMatch = i;
                     break;
                 }
@@ -260,16 +205,16 @@
             const day = parseInt(parts[0]);
             const month = months[parts[1]];
             if (!isNaN(day) && month !== undefined) {
-                const year = new Date().getFullYear();
-                return new Date(year, month, day);
+                return new Date(new Date().getFullYear(), month, day);
             }
         }
         return null;
     }
 
-    // --- UI RENDERING ---
+    // --- UI ---
     function showPickerSection() {
-        uploadSection.classList.add('hidden');
+        loadingSection.classList.add('hidden');
+        errorSection.classList.add('hidden');
         pickerSection.classList.remove('hidden');
         historySection.classList.remove('hidden');
 
@@ -285,6 +230,9 @@
         weekSelect.value = currentIdx;
         currentWeek = weekColumns[currentIdx]?.label;
 
+        // Load disabled members from localStorage
+        loadDisabledMembers();
+
         renderMembers();
         renderHistory();
     }
@@ -294,41 +242,65 @@
         const history = getWeekHistory();
         const usedNames = history.map(h => h.name);
 
-        const available = getAvailableMembers();
+        const membersForWeek = getMembersForWeek();
 
-        if (available.length === 0) {
-            membersList.innerHTML = '<p class="empty-state">Brak dostępnych osób w tym tygodniu</p>';
+        if (membersForWeek.length === 0) {
+            membersList.innerHTML = '<p class="empty-state">Brak osób w tym tygodniu</p>';
             pickBtn.disabled = true;
             return;
         }
 
-        available.forEach(member => {
-            const chip = document.createElement('span');
+        membersForWeek.forEach(member => {
             const isUsed = usedNames.includes(member.fullName);
-            chip.className = `member-chip${isUsed ? ' used' : ''}`;
-            chip.textContent = `${member.fullName}${isUsed ? ' ✓' : ''}`;
-            membersList.appendChild(chip);
+            const isDisabled = disabledMembers.has(member.fullName);
+
+            const label = document.createElement('label');
+            label.className = 'member-toggle';
+            if (isDisabled) label.classList.add('unchecked');
+            else if (isUsed) label.classList.add('used');
+
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.checked = !isDisabled;
+            checkbox.addEventListener('change', () => {
+                if (checkbox.checked) {
+                    disabledMembers.delete(member.fullName);
+                } else {
+                    disabledMembers.add(member.fullName);
+                }
+                saveDisabledMembers();
+                renderMembers();
+            });
+
+            const text = document.createTextNode(
+                member.fullName + (isUsed && !isDisabled ? ' ✓' : '')
+            );
+
+            label.appendChild(checkbox);
+            label.appendChild(text);
+            membersList.appendChild(label);
         });
 
-        const unusedAvailable = available.filter(m => !usedNames.includes(m.fullName));
-        if (unusedAvailable.length === 0) {
+        const eligible = getEligibleMembers();
+        if (eligible.length === 0) {
             pickBtn.disabled = true;
             pickBtn.textContent = '✅ Wszyscy już prowadzili!';
         } else {
             pickBtn.disabled = false;
-            pickBtn.innerHTML = '<span class="btn-icon">🎲</span> Losuj osobę!';
+            pickBtn.innerHTML = '<span class="btn-icon">🎲</span> Losuj!';
         }
     }
 
-    function getAvailableMembers() {
+    function getMembersForWeek() {
         if (!currentWeek) return [];
         return teamData.filter(m => {
             const availability = m.weeks[currentWeek];
-            const isExcluded = EXCLUDED_MEMBERS.some(
-                ex => m.fullName.toLowerCase() === ex.toLowerCase()
-            );
-            return !isExcluded && availability && availability > 0;
+            return availability && availability > 0;
         });
+    }
+
+    function getAvailableMembers() {
+        return getMembersForWeek().filter(m => !disabledMembers.has(m.fullName));
     }
 
     function getEligibleMembers() {
@@ -338,12 +310,29 @@
         return available.filter(m => !usedNames.includes(m.fullName));
     }
 
+    // --- DISABLED MEMBERS (localStorage per week) ---
+    function getDisabledKey() {
+        return `alfinator-disabled-${currentWeek || 'unknown'}`;
+    }
+
+    function loadDisabledMembers() {
+        try {
+            const stored = localStorage.getItem(getDisabledKey());
+            disabledMembers = stored ? new Set(JSON.parse(stored)) : new Set();
+        } catch {
+            disabledMembers = new Set();
+        }
+    }
+
+    function saveDisabledMembers() {
+        localStorage.setItem(getDisabledKey(), JSON.stringify([...disabledMembers]));
+    }
+
     // --- RANDOM PICK ---
     function pickRandom() {
         const eligible = getEligibleMembers();
         if (eligible.length === 0) return null;
-        const randomIndex = Math.floor(Math.random() * eligible.length);
-        return eligible[randomIndex];
+        return eligible[Math.floor(Math.random() * eligible.length)];
     }
 
     function animatePick(callback) {
@@ -353,12 +342,10 @@
 
         const eligible = getEligibleMembers();
         let count = 0;
-        const maxIterations = 15;
         const interval = setInterval(() => {
-            const randomMember = eligible[Math.floor(Math.random() * eligible.length)];
-            resultName.textContent = randomMember.fullName;
+            resultName.textContent = eligible[Math.floor(Math.random() * eligible.length)].fullName;
             count++;
-            if (count >= maxIterations) {
+            if (count >= 15) {
                 clearInterval(interval);
                 pickerSection.classList.remove('picking');
                 callback();
@@ -369,7 +356,7 @@
     function doPick() {
         const picked = pickRandom();
         if (!picked) {
-            alert('Wszyscy dostępni członkowie zespołu już prowadzili daily w tym tygodniu!');
+            alert('Brak dostępnych osób do wylosowania!');
             return;
         }
         animatePick(() => {
@@ -380,37 +367,29 @@
         });
     }
 
-    // --- HISTORY (localStorage) ---
+    // --- HISTORY ---
     function getStorageKey() {
-        return `daily-picker-history-${currentWeek || 'unknown'}`;
+        return `alfinator-history-${currentWeek || 'unknown'}`;
     }
 
     function getWeekHistory() {
-        const key = getStorageKey();
         try {
-            const stored = localStorage.getItem(key);
+            const stored = localStorage.getItem(getStorageKey());
             return stored ? JSON.parse(stored) : [];
-        } catch {
-            return [];
-        }
+        } catch { return []; }
     }
 
     function addToHistory(name) {
-        const key = getStorageKey();
         const history = getWeekHistory();
-        const today = new Date();
-        const dateStr = today.toLocaleDateString('pl-PL', {
-            weekday: 'long',
-            day: 'numeric',
-            month: 'long'
+        const dateStr = new Date().toLocaleDateString('pl-PL', {
+            weekday: 'long', day: 'numeric', month: 'long'
         });
-        history.push({ name, date: dateStr, timestamp: today.toISOString() });
-        localStorage.setItem(key, JSON.stringify(history));
+        history.push({ name, date: dateStr, timestamp: new Date().toISOString() });
+        localStorage.setItem(getStorageKey(), JSON.stringify(history));
     }
 
     function clearWeekHistory() {
-        const key = getStorageKey();
-        localStorage.removeItem(key);
+        localStorage.removeItem(getStorageKey());
         renderMembers();
         renderHistory();
         resultSection.classList.add('hidden');
@@ -419,7 +398,7 @@
     function renderHistory() {
         const history = getWeekHistory();
         if (history.length === 0) {
-            historyList.innerHTML = '<p class="empty-state">Brak historii — nikt jeszcze nie losował w tym tygodniu</p>';
+            historyList.innerHTML = '<p class="empty-state">Nikt jeszcze nie losował w tym tygodniu</p>';
             return;
         }
         historyList.innerHTML = history.map((h, idx) => `
@@ -430,38 +409,10 @@
         `).join('');
     }
 
-    // --- EVENT HANDLERS ---
-    uploadBtn.addEventListener('click', () => fileInput.click());
-    uploadArea.addEventListener('click', (e) => {
-        if (e.target === uploadArea || e.target.closest('.upload-area')) {
-            fileInput.click();
-        }
-    });
-
-    fileInput.addEventListener('change', (e) => {
-        const file = e.target.files[0];
-        if (file) parseExcelFile(file);
-    });
-
-    // Drag & Drop
-    uploadArea.addEventListener('dragover', (e) => {
-        e.preventDefault();
-        uploadArea.classList.add('dragover');
-    });
-
-    uploadArea.addEventListener('dragleave', () => {
-        uploadArea.classList.remove('dragover');
-    });
-
-    uploadArea.addEventListener('drop', (e) => {
-        e.preventDefault();
-        uploadArea.classList.remove('dragover');
-        const file = e.dataTransfer.files[0];
-        if (file) parseExcelFile(file);
-    });
-
+    // --- EVENTS ---
     weekSelect.addEventListener('change', (e) => {
         currentWeek = weekColumns[e.target.value]?.label;
+        loadDisabledMembers();
         renderMembers();
         renderHistory();
         resultSection.classList.add('hidden');
@@ -470,42 +421,26 @@
     pickBtn.addEventListener('click', doPick);
 
     rerollBtn.addEventListener('click', () => {
-        const key = getStorageKey();
         const history = getWeekHistory();
         if (history.length > 0) {
             history.pop();
-            localStorage.setItem(key, JSON.stringify(history));
+            localStorage.setItem(getStorageKey(), JSON.stringify(history));
         }
         renderMembers();
         doPick();
     });
 
     clearHistoryBtn.addEventListener('click', () => {
-        if (confirm('Czy na pewno chcesz wyczyścić historię tego tygodnia?')) {
-            clearWeekHistory();
-        }
+        if (confirm('Wyczyścić historię tego tygodnia?')) clearWeekHistory();
     });
 
-    // "Update file" button — shown when picker is active, allows re-upload
-    if (updateFileBtn) {
-        updateFileBtn.addEventListener('click', () => {
-            fileInput.click();
-        });
-    }
+    retryBtn.addEventListener('click', () => {
+        errorSection.classList.add('hidden');
+        loadingSection.classList.remove('hidden');
+        fetchExcelFromRepo();
+    });
 
-    // --- AUTO-LOAD FROM CACHE ON STARTUP ---
-    async function init() {
-        try {
-            const cached = await loadFileFromDB();
-            if (cached && cached.data) {
-                console.log('Loaded cached file:', cached.name, 'saved at:', cached.savedAt);
-                parseExcelBuffer(cached.data);
-            }
-        } catch (err) {
-            console.warn('Could not load cached file:', err);
-        }
-    }
-
-    init();
+    // --- INIT ---
+    fetchExcelFromRepo();
 
 })();
