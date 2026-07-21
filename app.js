@@ -24,7 +24,7 @@
     const errorSection = document.getElementById('errorSection');
     const retryBtn = document.getElementById('retryBtn');
     const pickerSection = document.getElementById('pickerSection');
-    const weekSelect = document.getElementById('weekSelect');
+    const todayLabel = document.getElementById('todayLabel');
     const membersList = document.getElementById('membersList');
     const pickBtn = document.getElementById('pickBtn');
     const resultSection = document.getElementById('resultSection');
@@ -218,21 +218,27 @@
         pickerSection.classList.remove('hidden');
         historySection.classList.remove('hidden');
 
-        weekSelect.innerHTML = '';
-        weekColumns.forEach((wc, idx) => {
-            const opt = document.createElement('option');
-            opt.value = idx;
-            opt.textContent = wc.label;
-            weekSelect.appendChild(opt);
-        });
-
+        // Auto-detect current week
         const currentIdx = findCurrentWeek();
-        weekSelect.value = currentIdx;
         currentWeek = weekColumns[currentIdx]?.label;
 
-        // Load disabled members from localStorage
-        loadDisabledMembers();
+        // Show today's date
+        const today = new Date();
+        const dayOfWeek = today.getDay(); // 0=Sun, 6=Sat
+        if (dayOfWeek === 0 || dayOfWeek === 6) {
+            todayLabel.innerHTML = '📅 <strong>Weekend</strong> — losowanie dostępne w dni robocze';
+            pickBtn.disabled = true;
+            pickBtn.textContent = '🏖️ Weekend';
+        } else {
+            const dateStr = today.toLocaleDateString('pl-PL', {
+                weekday: 'long',
+                day: 'numeric',
+                month: 'long'
+            });
+            todayLabel.innerHTML = `📅 Dziś: <strong>${dateStr}</strong>`;
+        }
 
+        loadDisabledMembers();
         renderMembers();
         renderHistory();
     }
@@ -410,14 +416,6 @@
     }
 
     // --- EVENTS ---
-    weekSelect.addEventListener('change', (e) => {
-        currentWeek = weekColumns[e.target.value]?.label;
-        loadDisabledMembers();
-        renderMembers();
-        renderHistory();
-        resultSection.classList.add('hidden');
-    });
-
     pickBtn.addEventListener('click', doPick);
 
     rerollBtn.addEventListener('click', () => {
