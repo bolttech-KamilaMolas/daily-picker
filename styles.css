@@ -178,17 +178,18 @@ body {
 .available-list h3 {
     font-size: 0.85rem;
     font-weight: 600;
-    color: var(--navy-60);
+    color: var(--navy);
     text-transform: uppercase;
     letter-spacing: 0.5px;
     margin-bottom: 0.75rem;
+    text-align: center;
 }
 
 .available-list .hint {
     font-weight: 400;
     text-transform: none;
     font-size: 0.75rem;
-    color: var(--navy-20);
+    color: var(--navy-60);
     letter-spacing: 0;
 }
 
@@ -198,6 +199,7 @@ body {
     flex-wrap: wrap;
     gap: 0.5rem;
     margin-bottom: 1.5rem;
+    justify-content: center;
 }
 
 .member-toggle {
