@@ -21,12 +21,30 @@
         </header>
 
         <section class="upload-section" id="uploadSection">
+            <div class="sharepoint-info">
+                <div class="step-card">
+                    <div class="step-number">1</div>
+                    <div class="step-content">
+                        <p>Pobierz aktualny plik Capacity z SharePoint:</p>
+                        <a href="https://digitalcarepl.sharepoint.com/:x:/s/RND/IQCIGRMMoA8VQrf-JLfqtMzpAUFLNubkKagObaL7WUXllHs?download=1"
+                           class="btn btn-primary" id="downloadSharepointBtn" target="_blank">
+                            📥 Pobierz z SharePoint
+                        </a>
+                    </div>
+                </div>
+                <div class="step-card">
+                    <div class="step-number">2</div>
+                    <div class="step-content">
+                        <p>Upuść pobrany plik tutaj:</p>
+                    </div>
+                </div>
+            </div>
             <div class="upload-area" id="uploadArea">
                 <div class="upload-icon">📊</div>
-                <h3>Wgraj plik Excel z Capacity</h3>
-                <p>Przeciągnij plik tutaj lub kliknij, aby wybrać</p>
+                <h3>Upuść plik Excel tutaj</h3>
+                <p>Przeciągnij pobrany plik lub kliknij, aby wybrać z dysku</p>
                 <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" hidden>
-                <button class="btn btn-primary" id="uploadBtn">Wybierz plik</button>
+                <button class="btn btn-secondary" id="uploadBtn">Wybierz z dysku</button>
             </div>
         </section>
 

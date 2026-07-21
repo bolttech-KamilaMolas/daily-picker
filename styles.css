@@ -89,6 +89,47 @@ body {
     margin-bottom: 2rem;
 }
 
+.sharepoint-info {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.step-card {
+    flex: 1;
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    background: var(--white);
+    border-radius: var(--radius);
+    padding: 1.25rem;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.step-number {
+    width: 28px;
+    height: 28px;
+    min-width: 28px;
+    background: var(--cyan);
+    color: var(--white);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 0.8rem;
+}
+
+.step-content p {
+    color: var(--gray-700);
+    font-size: 0.85rem;
+    margin-bottom: 0.75rem;
+}
+
+.step-content .btn {
+    white-space: nowrap;
+}
+
 .upload-area {
     border: 2px dashed var(--cyan-60);
     border-radius: var(--radius);
@@ -358,4 +399,5 @@ body {
     .picker-section { padding: 1.25rem; }
     .result-name { font-size: 1.5rem; }
     .btn-pick { padding: 0.85rem 2rem; font-size: 1rem; }
+    .sharepoint-info { flex-direction: column; }
 }
