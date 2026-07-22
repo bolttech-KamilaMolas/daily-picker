@@ -19,7 +19,7 @@
     const db = firebase.database();
 
     // --- CONFIG ---
-    const EXCEL_URL = 'https://bolttech-kamilamolas.github.io/daily-picker/data/capacity.xlsx';
+    const EXCEL_URL = 'https://bolttech-kamilamolas.github.io/alfinator/data/capacity.xlsx';
 
     const EXCLUDED_MEMBERS = [
         'Kamila Molas',
