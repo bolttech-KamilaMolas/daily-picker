@@ -8,7 +8,7 @@
     const firebaseConfig = {
         apiKey: "AIzaSyD4-D3dN22UlqKc8-PLfdwQl83vmbdbh4s",
         authDomain: "alfinator.firebaseapp.com",
-        databaseURL: "https://alfinator-default-rtdb.firebaseio.com",
+        databaseURL: "https://alfinator-default-rtdb.europe-west1.firebasedatabase.app",
         projectId: "alfinator",
         storageBucket: "alfinator.firebasestorage.app",
         messagingSenderId: "476621019100",
