@@ -1,8 +1,22 @@
 // ALFinator — Daily Standup Picker for ALF Team
-// Auto-fetches Excel from GitHub repo, users can toggle members off
+// Auto-fetches Excel from GitHub repo, shared history via Firebase
 
 (function () {
     'use strict';
+
+    // --- FIREBASE CONFIG ---
+    const firebaseConfig = {
+        apiKey: "AIzaSyD4-D3dN22UlqKc8-PLfdwQl83vmbdbh4s",
+        authDomain: "alfinator.firebaseapp.com",
+        databaseURL: "https://alfinator-default-rtdb.firebaseio.com",
+        projectId: "alfinator",
+        storageBucket: "alfinator.firebasestorage.app",
+        messagingSenderId: "476621019100",
+        appId: "1:476621019100:web:d4929e269c4abdf694e119"
+    };
+
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
 
     // --- CONFIG ---
     const EXCEL_URL = 'https://bolttech-kamilamolas.github.io/daily-picker/data/capacity.xlsx';
@@ -17,7 +31,8 @@
     let teamData = [];
     let weekColumns = [];
     let currentWeek = null;
-    let disabledMembers = new Set(); // manually toggled off by user (per session)
+    let disabledMembers = new Set();
+    let weekHistory = []; // shared via Firebase
 
     // --- DOM REFS ---
     const loadingSection = document.getElementById('loadingSection');
@@ -34,10 +49,52 @@
     const historyList = document.getElementById('historyList');
     const clearHistoryBtn = document.getElementById('clearHistoryBtn');
 
+    // --- FIREBASE HISTORY ---
+    function getWeekKey() {
+        return (currentWeek || 'unknown').replace(/[.#$/\[\]]/g, '_');
+    }
+
+    function getHistoryRef() {
+        return db.ref('history/' + getWeekKey());
+    }
+
+    function listenToHistory() {
+        getHistoryRef().on('value', (snapshot) => {
+            const data = snapshot.val();
+            weekHistory = data ? Object.values(data) : [];
+            renderMembers();
+            renderHistory();
+        });
+    }
+
+    function stopListeningHistory() {
+        getHistoryRef().off();
+    }
+
+    function addToHistory(name) {
+        const entry = {
+            name: name,
+            date: new Date().toLocaleDateString('pl-PL', {
+                weekday: 'long', day: 'numeric', month: 'long'
+            }),
+            timestamp: new Date().toISOString()
+        };
+        getHistoryRef().push(entry);
+    }
+
+    function clearWeekHistory() {
+        getHistoryRef().remove();
+        resultSection.classList.add('hidden');
+    }
+
+    function getWeekHistory() {
+        return weekHistory;
+    }
+
     // --- FETCH EXCEL FROM REPO ---
     async function fetchExcelFromRepo() {
         try {
-            const response = await fetch(EXCEL_URL + '?t=' + Date.now()); // cache bust
+            const response = await fetch(EXCEL_URL + '?t=' + Date.now());
             if (!response.ok) throw new Error('HTTP ' + response.status);
             const arrayBuffer = await response.arrayBuffer();
             parseExcelBuffer(arrayBuffer);
@@ -72,7 +129,7 @@
 
     function processSheetData(rows) {
         let headerRowIndex = -1;
-        let nameCol = -1, surnameCol = -1, fullNameCol = -1, skillsetCol = -1, teamCol = -1;
+        let nameCol = -1, surnameCol = -1, fullNameCol = -1, teamCol = -1;
 
         for (let i = 0; i < Math.min(rows.length, 20); i++) {
             const row = rows[i].map(c => String(c).trim().toUpperCase());
@@ -86,7 +143,6 @@
                 surnameCol = si;
                 teamCol = ti;
                 fullNameCol = row.indexOf('FULL NAME');
-                skillsetCol = row.indexOf('SKILLSET');
                 break;
             }
         }
@@ -140,8 +196,7 @@
 
             const weeks = {};
             weekColumns.forEach(wc => {
-                const cellValue = row[wc.colIndex];
-                weeks[wc.label] = parseAvailability(cellValue);
+                weeks[wc.label] = parseAvailability(row[wc.colIndex]);
             });
 
             teamData.push({ name, surname, fullName, team, weeks });
@@ -218,36 +273,29 @@
         pickerSection.classList.remove('hidden');
         historySection.classList.remove('hidden');
 
-        // Auto-detect current week
         const currentIdx = findCurrentWeek();
         currentWeek = weekColumns[currentIdx]?.label;
 
-        // Show today's date
         const today = new Date();
-        const dayOfWeek = today.getDay(); // 0=Sun, 6=Sat
+        const dayOfWeek = today.getDay();
         if (dayOfWeek === 0 || dayOfWeek === 6) {
             todayLabel.innerHTML = '📅 <strong>Weekend</strong> — losowanie dostępne w dni robocze';
             pickBtn.disabled = true;
             pickBtn.textContent = '🏖️ Weekend';
         } else {
             const dateStr = today.toLocaleDateString('pl-PL', {
-                weekday: 'long',
-                day: 'numeric',
-                month: 'long'
+                weekday: 'long', day: 'numeric', month: 'long'
             });
             todayLabel.innerHTML = `📅 Dziś: <strong>${dateStr}</strong>`;
         }
 
         loadDisabledMembers();
-        renderMembers();
-        renderHistory();
+        listenToHistory(); // Start Firebase real-time listener
     }
 
     function renderMembers() {
         membersList.innerHTML = '';
-        const history = getWeekHistory();
-        const usedNames = history.map(h => h.name);
-
+        const usedNames = weekHistory.map(h => h.name);
         const membersForWeek = getMembersForWeek();
 
         if (membersForWeek.length === 0) {
@@ -287,6 +335,10 @@
             membersList.appendChild(label);
         });
 
+        const today = new Date();
+        const dayOfWeek = today.getDay();
+        if (dayOfWeek === 0 || dayOfWeek === 6) return; // weekend block stays
+
         const eligible = getEligibleMembers();
         if (eligible.length === 0) {
             pickBtn.disabled = true;
@@ -311,12 +363,11 @@
 
     function getEligibleMembers() {
         const available = getAvailableMembers();
-        const history = getWeekHistory();
-        const usedNames = history.map(h => h.name);
+        const usedNames = weekHistory.map(h => h.name);
         return available.filter(m => !usedNames.includes(m.fullName));
     }
 
-    // --- DISABLED MEMBERS (localStorage per week) ---
+    // --- DISABLED MEMBERS (localStorage - local per user) ---
     function getDisabledKey() {
         return `alfinator-disabled-${currentWeek || 'unknown'}`;
     }
@@ -367,47 +418,16 @@
         }
         animatePick(() => {
             resultName.textContent = picked.fullName;
-            addToHistory(picked.fullName);
-            renderMembers();
-            renderHistory();
+            addToHistory(picked.fullName); // saves to Firebase
         });
-    }
-
-    // --- HISTORY ---
-    function getStorageKey() {
-        return `alfinator-history-${currentWeek || 'unknown'}`;
-    }
-
-    function getWeekHistory() {
-        try {
-            const stored = localStorage.getItem(getStorageKey());
-            return stored ? JSON.parse(stored) : [];
-        } catch { return []; }
-    }
-
-    function addToHistory(name) {
-        const history = getWeekHistory();
-        const dateStr = new Date().toLocaleDateString('pl-PL', {
-            weekday: 'long', day: 'numeric', month: 'long'
-        });
-        history.push({ name, date: dateStr, timestamp: new Date().toISOString() });
-        localStorage.setItem(getStorageKey(), JSON.stringify(history));
-    }
-
-    function clearWeekHistory() {
-        localStorage.removeItem(getStorageKey());
-        renderMembers();
-        renderHistory();
-        resultSection.classList.add('hidden');
     }
 
     function renderHistory() {
-        const history = getWeekHistory();
-        if (history.length === 0) {
+        if (weekHistory.length === 0) {
             historyList.innerHTML = '<p class="empty-state">Nikt jeszcze nie losował w tym tygodniu</p>';
             return;
         }
-        historyList.innerHTML = history.map((h, idx) => `
+        historyList.innerHTML = weekHistory.map((h, idx) => `
             <div class="history-item">
                 <span class="name">${idx + 1}. ${h.name}</span>
                 <span class="date">${h.date}</span>
@@ -419,17 +439,17 @@
     pickBtn.addEventListener('click', doPick);
 
     rerollBtn.addEventListener('click', () => {
-        const history = getWeekHistory();
-        if (history.length > 0) {
-            history.pop();
-            localStorage.setItem(getStorageKey(), JSON.stringify(history));
-        }
-        renderMembers();
+        // Remove last entry from Firebase
+        getHistoryRef().limitToLast(1).once('value', (snapshot) => {
+            snapshot.forEach(child => child.ref.remove());
+        });
         doPick();
     });
 
     clearHistoryBtn.addEventListener('click', () => {
-        if (confirm('Wyczyścić historię tego tygodnia?')) clearWeekHistory();
+        if (confirm('Wyczyścić historię tego tygodnia? (dla wszystkich!)')) {
+            clearWeekHistory();
+        }
     });
 
     retryBtn.addEventListener('click', () => {
