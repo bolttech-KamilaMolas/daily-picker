@@ -51,11 +51,13 @@
 
     // --- FIREBASE HISTORY ---
     function getWeekKey() {
+        // History persists until all members are picked (not weekly reset)
+        // Use current week as namespace only for grouping
         return (currentWeek || 'unknown').replace(/[.#$/\[\]]/g, '_');
     }
 
     function getHistoryRef() {
-        return db.ref('history/' + getWeekKey());
+        return db.ref('history/current');
     }
 
     function listenToHistory() {
@@ -367,13 +369,21 @@
         return available.filter(m => !usedNames.includes(m.fullName));
     }
 
-    // --- DISABLED MEMBERS (localStorage - local per user) ---
+    // --- DISABLED MEMBERS (localStorage - resets daily) ---
     function getDisabledKey() {
-        return `alfinator-disabled-${currentWeek || 'unknown'}`;
+        const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+        return `alfinator-disabled-${today}`;
     }
 
     function loadDisabledMembers() {
         try {
+            // Clean up old days
+            for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i);
+                if (key && key.startsWith('alfinator-disabled-') && key !== getDisabledKey()) {
+                    localStorage.removeItem(key);
+                }
+            }
             const stored = localStorage.getItem(getDisabledKey());
             disabledMembers = stored ? new Set(JSON.parse(stored)) : new Set();
         } catch {
@@ -419,6 +429,19 @@
         animatePick(() => {
             resultName.textContent = picked.fullName;
             addToHistory(picked.fullName); // saves to Firebase
+
+            // Check if all available members have been picked — auto-reset
+            setTimeout(() => {
+                const available = getAvailableMembers();
+                const usedNames = weekHistory.map(h => h.name);
+                const remaining = available.filter(m => !usedNames.includes(m.fullName));
+                if (remaining.length === 0 && available.length > 0) {
+                    // All picked — auto clear for next round
+                    setTimeout(() => {
+                        clearWeekHistory();
+                    }, 3000); // wait 3s so users see the last pick
+                }
+            }, 500);
         });
     }
 
