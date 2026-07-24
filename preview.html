@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ALFinator — PREVIEW</title>
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+<style>
+:root{--cyan:#00bac7;--cyan-bg:#f2fbfc;--navy:#170f4f;--navy-60:#746f95;--navy-bg:#f3f3f6;--yellow-60:#eee866;--yellow-20:#f9f7cc;--success:#039855;--success-light:#ecfdf3;--danger:#d92d20;--danger-light:#fee4e2;--white:#fff;--gray-50:#f9fafb;--gray-100:#f3f4f6;--gray-200:#e5e7eb;--gray-600:#4b5563;--gray-700:#374151;--gray-800:#1f2937;--radius:8px}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Inter',sans-serif;background:var(--navy-bg);color:var(--gray-800);min-height:100vh;padding:2rem 1rem}
+.container{max-width:700px;margin:0 auto}
+.header{text-align:center;margin-bottom:2rem}
+.header h1{font-size:2rem;font-weight:800;color:var(--navy)}
+.subtitle{color:var(--navy-60);font-size:.9rem}
+.picker-section{background:var(--white);border-radius:var(--radius);padding:2rem;margin-bottom:1.5rem;box-shadow:0 1px 3px rgba(0,0,0,.05)}
+.week-info{margin-bottom:1rem;padding-bottom:1rem;border-bottom:1px solid var(--gray-200);color:var(--navy);font-size:.9rem}
+.members{display:flex;flex-wrap:wrap;gap:.5rem;margin-bottom:1.5rem;justify-content:center}
+.member-toggle{display:inline-flex;align-items:center;gap:.4rem;font-size:.8rem;font-weight:500;padding:.4rem .75rem;border-radius:100px;cursor:pointer;border:1.5px solid var(--success);background:var(--success-light);color:var(--success)}
+.member-toggle input{display:none}
+.member-toggle.used{border-color:var(--yellow-60);background:var(--yellow-20);color:var(--gray-600)}
+.picker-action{text-align:center;margin:1.5rem 0}
+.btn{display:inline-flex;align-items:center;gap:.5rem;padding:.65rem 1.5rem;border:none;border-radius:var(--radius);font-family:inherit;font-size:.875rem;font-weight:600;cursor:pointer}
+.btn-pick{background:var(--navy);color:var(--white);font-size:1.1rem;padding:1rem 2.5rem;border-radius:100px}
+.btn-pick:disabled{opacity:.5;cursor:not-allowed}
+.btn-secondary{background:var(--gray-100);color:var(--gray-700)}
+.btn-danger{background:var(--danger-light);color:var(--danger);font-size:.75rem;padding:.4rem .8rem;margin-top:1rem}
+.result{margin-top:1.5rem}
+.result-card{background:linear-gradient(135deg,var(--cyan-bg),var(--white));border:2px solid var(--cyan);border-radius:var(--radius);padding:2rem;text-align:center}
+.result-label{font-size:.85rem;color:var(--navy-60);margin-bottom:.5rem}
+.result-name{font-size:2rem;font-weight:800;color:var(--navy);margin-bottom:1rem}
+.history-section{background:var(--white);border-radius:var(--radius);padding:1.5rem;box-shadow:0 1px 3px rgba(0,0,0,.05);margin-bottom:1.5rem}
+.history-section h3{font-size:.95rem;color:var(--navy);margin-bottom:1rem}
+.history-item{display:flex;justify-content:space-between;padding:.6rem 0;border-bottom:1px solid var(--gray-100)}
+.history-item:last-child{border-bottom:none}
+.history-item .name{font-weight:600;color:var(--navy)}
+.history-item .date{font-size:.75rem;color:var(--navy-60)}
+.empty-state{color:var(--navy-60);font-size:.85rem;text-align:center;padding:1rem}
+.hidden{display:none!important}
+.footer{text-align:center;padding:1rem;color:var(--navy-60);font-size:.75rem}
+.available-list h3{font-size:.85rem;font-weight:600;color:var(--navy);text-transform:uppercase;letter-spacing:.5px;margin-bottom:.75rem;text-align:center}
+.hint{font-weight:400;text-transform:none;font-size:.75rem;color:var(--navy-60);letter-spacing:0}
+.admin-badge{display:inline-block;background:var(--danger-light);color:var(--danger);font-size:.7rem;font-weight:600;padding:.2rem .5rem;border-radius:4px;margin-left:.5rem}
+</style>
+</head>
+<body>
+<div class="container">
+    <header class="header">
+        <h1>ALFinator</h1>
+        <p class="subtitle">Kto dziś prowadzi daily? (PREVIEW)</p>
+    </header>
+
+    <section class="picker-section" id="pickerSection">
+        <div class="week-info" id="todayLabel"></div>
+        <div class="available-list">
+            <h3>Zespół <span class="hint">(mock data)</span></h3>
+            <div class="members" id="membersList"></div>
+        </div>
+        <div class="picker-action">
+            <button class="btn btn-pick" id="pickBtn">🎲 Losuj!</button>
+        </div>
+        <div class="result hidden" id="resultSection">
+            <div class="result-card">
+                <div class="result-label">Dziś daily prowadzi:</div>
+                <div class="result-name" id="resultName"></div>
+                <button class="btn btn-secondary" id="rerollBtn">🔄 Losuj ponownie</button>
+            </div>
+        </div>
+    </section>
+
+    <section class="history-section">
+        <h3>📋 Historia losowań</h3>
+        <div id="historyList"><p class="empty-state">Nikt jeszcze nie losował</p></div>
+        <button class="btn btn-danger hidden" id="clearHistoryBtn">🔑 Wyczyść historię (admin)</button>
+    </section>
+
+    <footer class="footer">
+        Historia czyści się automatycznie po wylosowaniu wszystkich ·
+        Admin: dodaj <code>?admin</code> do URL
+    </footer>
+</div>
+</body>
+</html>
+
+<script>
+(function() {
+'use strict';
+
+firebase.initializeApp({
+    apiKey: "AIzaSyD4-D3dN22UlqKc8-PLfdwQl83vmbdbh4s",
+    authDomain: "alfinator.firebaseapp.com",
+    databaseURL: "https://alfinator-default-rtdb.europe-west1.firebasedatabase.app",
+    projectId: "alfinator",
+    storageBucket: "alfinator.firebasestorage.app",
+    messagingSenderId: "476621019100",
+    appId: "1:476621019100:web:d4929e269c4abdf694e119"
+});
+var db = firebase.database();
+
+// Admin mode via ?admin in URL
+var IS_ADMIN = new URLSearchParams(window.location.search).has('admin');
+
+// Mock team
+var TEAM = ['Adam Gruszecki','Michał Godziszewski','Mikołaj Banaszkiewicz','Jan Kowalski','Anna Nowak','Piotr Wiśniewski'];
+var weekHistory = [];
+
+// DOM
+var pickBtn = document.getElementById('pickBtn');
+var resultSection = document.getElementById('resultSection');
+var resultName = document.getElementById('resultName');
+var rerollBtn = document.getElementById('rerollBtn');
+var historyList = document.getElementById('historyList');
+var clearHistoryBtn = document.getElementById('clearHistoryBtn');
+var membersList = document.getElementById('membersList');
+var todayLabel = document.getElementById('todayLabel');
+
+// Show admin button
+if (IS_ADMIN) {
+    clearHistoryBtn.classList.remove('hidden');
+    document.querySelector('.header h1').innerHTML = 'ALFinator <span class="admin-badge">ADMIN</span>';
+}
+
+// Firebase refs
+function getHistoryRef() { return db.ref('history/current'); }
+function getAuditRef() { return db.ref('audit_log'); }
+
+function logAuditEvent(action, details) {
+    getAuditRef().push({ action: action, timestamp: new Date().toISOString(), details: details || null });
+}
+
+// Listen to history
+getHistoryRef().on('value', function(snap) {
+    var data = snap.val();
+    weekHistory = data ? Object.values(data) : [];
+    renderMembers();
+    renderHistory();
+});
+
+function addToHistory(name) {
+    getHistoryRef().push({
+        name: name,
+        date: new Date().toLocaleDateString('pl-PL', { weekday:'long', day:'numeric', month:'long' }),
+        timestamp: new Date().toISOString()
+    });
+}
+
+function renderMembers() {
+    membersList.innerHTML = '';
+    var used = weekHistory.map(function(h) { return h.name; });
+    TEAM.forEach(function(name) {
+        var label = document.createElement('label');
+        label.className = 'member-toggle' + (used.indexOf(name) !== -1 ? ' used' : '');
+        var cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = true;
+        label.appendChild(cb);
+        label.appendChild(document.createTextNode(name + (used.indexOf(name) !== -1 ? ' \u2713' : '')));
+        membersList.appendChild(label);
+    });
+    var eligible = getEligible();
+    if (eligible.length === 0) { pickBtn.disabled = true; pickBtn.textContent = '\u2705 Wszyscy wylosowani!'; }
+    else { pickBtn.disabled = false; pickBtn.innerHTML = '🎲 Losuj!'; }
+}
+
+function getEligible() {
+    var used = weekHistory.map(function(h) { return h.name; });
+    return TEAM.filter(function(n) { return used.indexOf(n) === -1; });
+}
+
+function renderHistory() {
+    if (weekHistory.length === 0) { historyList.innerHTML = '<p class="empty-state">Nikt jeszcze nie losował</p>'; return; }
+    historyList.innerHTML = weekHistory.map(function(h, i) {
+        return '<div class="history-item"><span class="name">' + (i+1) + '. ' + h.name + '</span><span class="date">' + h.date + '</span></div>';
+    }).join('');
+}
+
+function doPick() {
+    var eligible = getEligible();
+    if (eligible.length === 0) return;
+    var picked = eligible[Math.floor(Math.random() * eligible.length)];
+    resultSection.classList.remove('hidden');
+    resultName.textContent = picked;
+    addToHistory(picked);
+
+    // Auto-clear when all picked
+    setTimeout(function() {
+        if (getEligible().length === 0) {
+            setTimeout(function() {
+                logAuditEvent('auto_clear', { reason: 'Wszyscy wylosowani' });
+                getHistoryRef().remove();
+                resultSection.classList.add('hidden');
+            }, 3000);
+        }
+    }, 500);
+}
+
+// Events
+pickBtn.addEventListener('click', doPick);
+rerollBtn.addEventListener('click', function() {
+    getHistoryRef().limitToLast(1).once('value', function(snap) { snap.forEach(function(c) { c.ref.remove(); }); });
+    doPick();
+});
+clearHistoryBtn.addEventListener('click', function() {
+    if (confirm('ADMIN: Wyczyścić historię? (dla wszystkich!)')) {
+        logAuditEvent('admin_clear', { entriesCount: weekHistory.length });
+        getHistoryRef().remove();
+        resultSection.classList.add('hidden');
+    }
+});
+
+// Init
+todayLabel.innerHTML = '📅 Dziś: <strong>' + new Date().toLocaleDateString('pl-PL', { weekday:'long', day:'numeric', month:'long' }) + '</strong>';
+})();
+</script>

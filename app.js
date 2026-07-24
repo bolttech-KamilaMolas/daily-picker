@@ -1,5 +1,6 @@
 // ALFinator — Daily Standup Picker for ALF Team
 // Auto-fetches Excel from GitHub repo, shared history via Firebase
+// History auto-clears when all members are picked. Manual clear: admin only (?admin in URL).
 
 (function () {
     'use strict';
@@ -27,12 +28,29 @@
         'Szymon Bartnik'
     ];
 
+    // Admin mode: append ?admin to URL to see admin controls
+    const IS_ADMIN = new URLSearchParams(window.location.search).has('admin');
+
     // --- STATE ---
     let teamData = [];
     let weekColumns = [];
     let currentWeek = null;
     let disabledMembers = new Set();
     let weekHistory = []; // shared via Firebase
+
+    // --- AUDIT LOG ---
+    function getAuditRef() {
+        return db.ref('audit_log');
+    }
+
+    function logAuditEvent(action, details) {
+        const entry = {
+            action: action,
+            timestamp: new Date().toISOString(),
+            details: details || null
+        };
+        getAuditRef().push(entry);
+    }
 
     // --- DOM REFS ---
     const loadingSection = document.getElementById('loadingSection');
@@ -50,12 +68,6 @@
     const clearHistoryBtn = document.getElementById('clearHistoryBtn');
 
     // --- FIREBASE HISTORY ---
-    function getWeekKey() {
-        // History persists until all members are picked (not weekly reset)
-        // Use current week as namespace only for grouping
-        return (currentWeek || 'unknown').replace(/[.#$/\[\]]/g, '_');
-    }
-
     function getHistoryRef() {
         return db.ref('history/current');
     }
@@ -67,10 +79,6 @@
             renderMembers();
             renderHistory();
         });
-    }
-
-    function stopListeningHistory() {
-        getHistoryRef().off();
     }
 
     function addToHistory(name) {
@@ -85,12 +93,9 @@
     }
 
     function clearWeekHistory() {
+        logAuditEvent('admin_clear', { entriesCount: weekHistory.length });
         getHistoryRef().remove();
         resultSection.classList.add('hidden');
-    }
-
-    function getWeekHistory() {
-        return weekHistory;
     }
 
     // --- FETCH EXCEL FROM REPO ---
@@ -291,8 +296,13 @@
             todayLabel.innerHTML = `📅 Dziś: <strong>${dateStr}</strong>`;
         }
 
+        // Show admin controls only for admin
+        if (IS_ADMIN) {
+            clearHistoryBtn.classList.remove('hidden');
+        }
+
         loadDisabledMembers();
-        listenToHistory(); // Start Firebase real-time listener
+        listenToHistory();
     }
 
     function renderMembers() {
@@ -339,7 +349,7 @@
 
         const today = new Date();
         const dayOfWeek = today.getDay();
-        if (dayOfWeek === 0 || dayOfWeek === 6) return; // weekend block stays
+        if (dayOfWeek === 0 || dayOfWeek === 6) return;
 
         const eligible = getEligibleMembers();
         if (eligible.length === 0) {
@@ -371,13 +381,12 @@
 
     // --- DISABLED MEMBERS (localStorage - resets daily) ---
     function getDisabledKey() {
-        const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+        const today = new Date().toISOString().slice(0, 10);
         return `alfinator-disabled-${today}`;
     }
 
     function loadDisabledMembers() {
         try {
-            // Clean up old days
             for (let i = 0; i < localStorage.length; i++) {
                 const key = localStorage.key(i);
                 if (key && key.startsWith('alfinator-disabled-') && key !== getDisabledKey()) {
@@ -428,18 +437,19 @@
         }
         animatePick(() => {
             resultName.textContent = picked.fullName;
-            addToHistory(picked.fullName); // saves to Firebase
+            addToHistory(picked.fullName);
 
-            // Check if all available members have been picked — auto-reset
+            // Auto-clear when all available members have been picked
             setTimeout(() => {
                 const available = getAvailableMembers();
                 const usedNames = weekHistory.map(h => h.name);
                 const remaining = available.filter(m => !usedNames.includes(m.fullName));
                 if (remaining.length === 0 && available.length > 0) {
-                    // All picked — auto clear for next round
                     setTimeout(() => {
-                        clearWeekHistory();
-                    }, 3000); // wait 3s so users see the last pick
+                        logAuditEvent('auto_clear', { reason: 'Wszyscy wylosowani' });
+                        getHistoryRef().remove();
+                        resultSection.classList.add('hidden');
+                    }, 3000);
                 }
             }, 500);
         });
@@ -462,7 +472,6 @@
     pickBtn.addEventListener('click', doPick);
 
     rerollBtn.addEventListener('click', () => {
-        // Remove last entry from Firebase
         getHistoryRef().limitToLast(1).once('value', (snapshot) => {
             snapshot.forEach(child => child.ref.remove());
         });
@@ -470,7 +479,7 @@
     });
 
     clearHistoryBtn.addEventListener('click', () => {
-        if (confirm('Wyczyścić historię tego tygodnia? (dla wszystkich!)')) {
+        if (confirm('ADMIN: Wyczyścić historię? (dla wszystkich!)')) {
             clearWeekHistory();
         }
     });
