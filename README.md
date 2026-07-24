@@ -109,6 +109,7 @@ daily-picker/
 ├── styles.css              # Style (bolttech colors)
 ├── app.js                  # Cała logika
 ├── alf.png                 # Logo ALFa
+├── preview.html            # Standalone preview do testowania (mock data)
 ├── update-capacity.bat     # Skrypt do aktualizacji danych
 └── data/
     └── capacity.xlsx       # Plik z dostępnością (aktualizowany co tydzień)
@@ -126,3 +127,30 @@ daily-picker/
 8. Firebase Realtime Database — wspólna historia dla wszystkich
 9. Logika: odznaczenia resetują się codziennie, historia do wyczerpania puli
 10. Zmiana nazwy repo na `alfinator`
+11. Usunięcie ręcznego czyszczenia historii dla użytkowników — tylko auto-clear + admin
+12. Audit log w Firebase (`audit_log`) — logowanie zdarzeń: auto_clear, admin_clear
+
+## Tryb administratora
+
+Przycisk "Wyczyść historię" jest ukryty dla zwykłych użytkowników. Aby uzyskać dostęp:
+
+```
+https://bolttech-kamilamolas.github.io/alfinator/?admin
+```
+
+Dodanie `?admin` do URL pokazuje przycisk czyszczenia historii. Każde czyszczenie (ręczne i automatyczne) jest logowane w Firebase w węźle `audit_log`.
+
+### Audit log (Firebase)
+
+Ścieżka: `audit_log/`
+
+Rejestrowane zdarzenia:
+- `auto_clear` — historia wyczyszczona automatycznie (wszyscy wylosowani)
+- `admin_clear` — historia wyczyszczona ręcznie przez admina
+
+Każdy wpis zawiera:
+- `action` — typ zdarzenia
+- `timestamp` — data i godzina (ISO 8601)
+- `details` — dodatkowe info (np. ile wpisów było w historii)
+
+Podgląd: [Firebase Console → Realtime Database → audit_log](https://console.firebase.google.com/project/alfinator/database/alfinator-default-rtdb/data/~2Faudit_log)
