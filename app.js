@@ -457,7 +457,7 @@
 
     function renderHistory() {
         if (weekHistory.length === 0) {
-            historyList.innerHTML = '<p class="empty-state">Nikt jeszcze nie losował w tym tygodniu</p>';
+            historyList.innerHTML = '<p class="empty-state">Nikt jeszcze nie losował</p>';
             return;
         }
         historyList.innerHTML = weekHistory.map((h, idx) => `
